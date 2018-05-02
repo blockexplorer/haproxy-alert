@@ -245,9 +245,9 @@ fn main() {
               .collect(),
           )
           .thumb_url(if alert.status == Status::Up {
-            "https://png.icons8.com/color/96/000000/good-quality.png"
+            "https://png.icons8.com/color/75/000000/good-quality.png"
           } else {
-            "https://png.icons8.com/color/96/000000/poor-quality.png"
+            "https://png.icons8.com/color/75/000000/poor-quality.png"
           })
           .build()
           .unwrap(),
