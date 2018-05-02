@@ -1,0 +1,15 @@
+[package]
+authors = ["Kevin Darlington <kevin@londontrustmedia.com>"]
+name = "haproxy-alert"
+version = "0.1.0"
+
+[dependencies]
+envy = "0.3.2"
+lazy_static = "1.0.0"
+regex = "1.0.0"
+serde = "1.0.43"
+serde_derive = "1.0.43"
+slack-hook = "0.6.0"
+
+[dependencies.smtpd]
+git = "https://github.com/gkbrk/rust-smtpd"
