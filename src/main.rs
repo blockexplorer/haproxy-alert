@@ -16,7 +16,8 @@ use slack_hook::{AttachmentBuilder, Field, PayloadBuilder, Slack};
 use smtpd::SmtpServer;
 
 lazy_static! {
-    static ref RE: Regex = Regex::new(r"(Server.*?), reason: (.*?), check duration: (.*?). (\d+) active and (\d+) backup servers left. (\d+) sessions active, (\d+) requeued, (\d+) remaining in queue").unwrap();
+  static ref RE_DOWN: Regex = Regex::new(r"(Server.*?), reason: (.*?), check duration: (.*?). (\d+) active and (\d+) backup servers left. (\d+) sessions active, (\d+) requeued, (\d+) remaining in queue").unwrap();
+  static ref RE_UP: Regex = Regex::new(r"(Server.*?), reason: (.*?), code: (\d+), info: (.*?), check duration: (.*?). (\d+) active and (\d+) backup servers online. (\d+) sessions requeued, (\d+) total in queue").unwrap();
 }
 
 #[derive(Deserialize, Debug)]
@@ -28,7 +29,20 @@ struct Config {
 struct Alert {
   message: String,
   reason: String,
+  status: Status,
   keyvalue: Vec<(String, String)>,
+}
+
+#[derive(Debug, PartialEq)]
+enum Status {
+  Up,
+  Down,
+}
+
+impl Default for Status {
+  fn default() -> Status {
+    Status::Up
+  }
 }
 
 #[derive(PartialEq)]
@@ -63,9 +77,35 @@ fn parse_haxproxy_alert(email: &str) -> Result<Alert, Box<Error>> {
     }
   }
 
-  if let Some(captures) = RE.captures(body) {
+  if let Some(captures) = RE_UP.captures(body) {
     alert.message = captures[1].to_string();
     alert.reason = captures[2].to_string();
+    alert.status = Status::Up;
+    alert
+      .keyvalue
+      .push(("code".to_string(), captures[3].to_string()));
+    alert
+      .keyvalue
+      .push(("info".to_string(), captures[4].to_string()));
+    alert
+      .keyvalue
+      .push(("check duration".to_string(), captures[5].to_string()));
+    alert
+      .keyvalue
+      .push(("active servers online".to_string(), captures[6].to_string()));
+    alert
+      .keyvalue
+      .push(("backup servers online".to_string(), captures[7].to_string()));
+    alert
+      .keyvalue
+      .push(("sessions requeued".to_string(), captures[8].to_string()));
+    alert
+      .keyvalue
+      .push(("total in queue".to_string(), captures[8].to_string()));
+  } else if let Some(captures) = RE_DOWN.captures(body) {
+    alert.message = captures[1].to_string();
+    alert.reason = captures[2].to_string();
+    alert.status = Status::Down;
     alert
       .keyvalue
       .push(("check duration".to_string(), captures[3].to_string()));
@@ -192,7 +232,11 @@ fn main() {
       .username("haproxy-alert")
       .attachments(vec![
         AttachmentBuilder::new("")
-          .color("#f38181")
+          .color(if alert.status == Status::Up {
+            "good" // "#81f292"
+          } else {
+            "danger" // "#f38181"
+          })
           .fields(
             alert
               .keyvalue
@@ -200,6 +244,11 @@ fn main() {
               .map(|ref x| Field::new(capitalize(&x.0), capitalize(&x.1), Some(true)))
               .collect(),
           )
+          .thumb_url(if alert.status == Status::Up {
+            "https://png.icons8.com/color/96/000000/good-quality.png"
+          } else {
+            "https://png.icons8.com/color/96/000000/poor-quality.png"
+          })
           .build()
           .unwrap(),
       ])
