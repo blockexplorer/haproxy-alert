@@ -28,3 +28,7 @@ Distributed under the MIT license. See `LICENSE` for more information.
 Pull requests are welcome. For major changes, please open an issue first to discuss what you would like to change.
 
 Please make sure to update tests as appropriate.
+
+## Attributions
+
+Icon images are provided by [Icons8](https://icons8.com)
