@@ -2,23 +2,14 @@ extern crate smtpd;
 #[macro_use]
 extern crate serde_derive;
 extern crate envy;
-extern crate regex;
 extern crate serde;
 extern crate slack_hook;
-#[macro_use]
-extern crate lazy_static;
 
 use std::error::Error;
 use std::process::exit;
 
-use regex::Regex;
 use slack_hook::{AttachmentBuilder, Field, PayloadBuilder, Slack};
 use smtpd::SmtpServer;
-
-lazy_static! {
-  static ref RE_DOWN: Regex = Regex::new(r"(Server.*?), reason: (.*?), check duration: (.*?). (\d+) active and (\d+) backup servers left. (\d+) sessions active, (\d+) requeued, (\d+) remaining in queue").unwrap();
-  static ref RE_UP: Regex = Regex::new(r"(Server.*?), reason: (.*?), code: (\d+), info: (.*?), check duration: (.*?). (\d+) active and (\d+) backup servers online. (\d+) sessions requeued, (\d+) total in queue").unwrap();
-}
 
 #[derive(Deserialize, Debug)]
 struct Config {
@@ -28,20 +19,19 @@ struct Config {
 #[derive(Debug, PartialEq, Default)]
 struct Alert {
   message: String,
-  reason: String,
   status: Status,
-  keyvalue: Vec<(String, String)>,
 }
 
 #[derive(Debug, PartialEq)]
 enum Status {
-  Up,
-  Down,
+  Good,
+  Bad,
+  Info,
 }
 
 impl Default for Status {
   fn default() -> Status {
-    Status::Up
+    Status::Good
   }
 }
 
@@ -77,120 +67,16 @@ fn parse_haxproxy_alert(email: &str) -> Result<Alert, Box<Error>> {
     }
   }
 
-  if let Some(captures) = RE_UP.captures(body) {
-    alert.message = captures[1].to_string();
-    alert.reason = captures[2].to_string();
-    alert.status = Status::Up;
-    alert
-      .keyvalue
-      .push(("code".to_string(), captures[3].to_string()));
-    alert
-      .keyvalue
-      .push(("info".to_string(), captures[4].to_string()));
-    alert
-      .keyvalue
-      .push(("check duration".to_string(), captures[5].to_string()));
-    alert
-      .keyvalue
-      .push(("active servers online".to_string(), captures[6].to_string()));
-    alert
-      .keyvalue
-      .push(("backup servers online".to_string(), captures[7].to_string()));
-    alert
-      .keyvalue
-      .push(("sessions requeued".to_string(), captures[8].to_string()));
-    alert
-      .keyvalue
-      .push(("total in queue".to_string(), captures[8].to_string()));
-  } else if let Some(captures) = RE_DOWN.captures(body) {
-    alert.message = captures[1].to_string();
-    alert.reason = captures[2].to_string();
-    alert.status = Status::Down;
-    alert
-      .keyvalue
-      .push(("check duration".to_string(), captures[3].to_string()));
-    alert
-      .keyvalue
-      .push(("active servers left".to_string(), captures[4].to_string()));
-    alert
-      .keyvalue
-      .push(("backup servers left".to_string(), captures[5].to_string()));
-    alert
-      .keyvalue
-      .push(("sessions active".to_string(), captures[6].to_string()));
-    alert
-      .keyvalue
-      .push(("requeued".to_string(), captures[7].to_string()));
-    alert
-      .keyvalue
-      .push(("remaining in queue".to_string(), captures[8].to_string()));
+  alert.message = body.to_string();
+
+  let parts: Vec<_> = body.split(",").collect();
+  alert.status = if parts[0].contains("UP") {
+    Status::Good
+  } else if parts[0].contains("DOWN") {
+    Status::Bad
   } else {
-    return Err(format!("parse error: regex doesn't match: {}", body).into());
-  }
-
-  // let parts: Vec<&str> = body.split(|c| c == '.' || c == ',').collect();
-  // if parts.len() != 7 {
-  //   return Err(format!(
-  //     "could not parse alert. parts.len() expected: 7, got: {}",
-  //     parts.len()
-  //   ));
-  // }
-
-  // alert.message = parts[0].to_owned();
-
-  // let mut buf = vec![];
-  // state = ParseState::Message;
-  // for c in body.chars() {
-  //   match c {
-  //     ',' => {
-  //       match state {
-  //         ParseState::Message => {
-  //           state = ParseState::KeyValue;
-  //           alert.message = buf.iter().collect();
-  //           buf.clear();
-  //         }
-  //         ParseState::KeyValue => {
-  //           let index = buf
-  //             .iter()
-  //             .position(|&x| x == ':')
-  //             .ok_or("could not find ':' in key/value")?;
-  //           alert.map.insert(
-  //             // Does this create two allocations?
-  //             buf[..index].iter().collect::<String>().trim().to_string(),
-  //             buf[index + 1..]
-  //               .iter()
-  //               .collect::<String>()
-  //               .trim()
-  //               .to_string(),
-  //           );
-  //         }
-  //         _ => {
-  //           return Err("parse error".into());
-  //         }
-  //       };
-  //     }
-  //     '.' => {
-  //       match state {
-  //         ParseState::KeyValue => state = ParseState::ServersLeft,
-  //         ParseState::ServersLeft => {
-  //           let parts: Vec<_> = buf.split(|&x| x == ' ').collect();
-  //           if parts.len() != 7 {
-  //             return Err(format!(
-  //               "could not parse servers left. parts.len() expected: 7, got: {}",
-  //               parts.len()
-  //             ));
-  //           }
-
-  //           //alert.map.insert(parts[0],
-  //         }
-  //         _ => {
-  //           return Err("parse error".into());
-  //         }
-  //       };
-  //     }
-  //     _ => buf.push(c),
-  //   }
-  // }
+    Status::Info
+  };
 
   Ok(alert)
 }
@@ -227,27 +113,32 @@ fn main() {
       }
     };
 
+    let mut lines = alert
+      .message
+      .split(|c| c == '.' || c == ',')
+      .map(|x| x.trim());
+    let message = lines.next().unwrap();
+    let lines: Vec<_> = lines.collect();
+
     match slack.send(&PayloadBuilder::new()
-      .text(format!("{}: {}", alert.message, alert.reason))
+      .text(message)
       .username("haproxy-alert")
       .attachments(vec![
         AttachmentBuilder::new("")
-          .color(if alert.status == Status::Up {
-            "good" // "#81f292"
+          .text(format!("{}", lines.join("\n")))
+          .color(if alert.status == Status::Good {
+            "good"
+          } else if alert.status == Status::Bad {
+            "danger"
           } else {
-            "danger" // "#f38181"
+            "warning"
           })
-          .fields(
-            alert
-              .keyvalue
-              .iter()
-              .map(|ref x| Field::new(capitalize(&x.0), capitalize(&x.1), Some(true)))
-              .collect(),
-          )
-          .thumb_url(if alert.status == Status::Up {
+          .thumb_url(if alert.status == Status::Good {
             "https://png.icons8.com/color/75/000000/good-quality.png"
-          } else {
+          } else if alert.status == Status::Bad {
             "https://png.icons8.com/color/75/000000/poor-quality.png"
+          } else {
+            "https://png.icons8.com/color/75/000000/info.png"
           })
           .build()
           .unwrap(),
