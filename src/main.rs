@@ -8,7 +8,7 @@ extern crate slack_hook;
 use std::error::Error;
 use std::process::exit;
 
-use slack_hook::{AttachmentBuilder, Field, PayloadBuilder, Slack};
+use slack_hook::{AttachmentBuilder, PayloadBuilder, Slack};
 use smtpd::SmtpServer;
 
 #[derive(Deserialize, Debug)]
@@ -44,14 +44,6 @@ enum ParseState {
   // ServersLeft,
 }
 
-fn capitalize(s: &str) -> String {
-  let mut c = s.chars();
-  match c.next() {
-    None => String::new(),
-    Some(f) => f.to_uppercase().collect::<String>() + c.as_str(),
-  }
-}
-
 fn parse_haxproxy_alert(email: &str) -> Result<Alert, Box<Error>> {
   let mut alert = Alert::default();
   let mut state = ParseState::EmailHeader;
@@ -69,7 +61,7 @@ fn parse_haxproxy_alert(email: &str) -> Result<Alert, Box<Error>> {
 
   alert.message = body.to_string();
 
-  let parts: Vec<_> = body.split(",").collect();
+  let parts: Vec<_> = body.split(',').collect();
   alert.status = if parts[0].contains("UP") {
     Status::Good
   } else if parts[0].contains("DOWN") {
@@ -120,12 +112,12 @@ fn main() {
     let message = lines.next().unwrap();
     let lines: Vec<_> = lines.collect();
 
-    match slack.send(&PayloadBuilder::new()
+    if let Err(e) = slack.send(&PayloadBuilder::new()
       .text(message)
       .username("haproxy-alert")
       .attachments(vec![
         AttachmentBuilder::new("")
-          .text(format!("{}", lines.join("\n")))
+          .text(lines.join("\n"))
           .color(if alert.status == Status::Good {
             "good"
           } else if alert.status == Status::Bad {
@@ -146,9 +138,8 @@ fn main() {
       .build()
       .unwrap())
     {
-      Err(e) => eprintln!("could not notify slack: {}", e),
-      Ok(_) => (),
-    };
+      eprintln!("could not notify slack: {}", e);
+    }
   }
 }
 
