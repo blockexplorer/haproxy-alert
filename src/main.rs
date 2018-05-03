@@ -39,9 +39,6 @@ impl Default for Status {
 enum ParseState {
   EmailHeader,
   EmailBody,
-  // Message,
-  // KeyValue,
-  // ServersLeft,
 }
 
 fn parse_haxproxy_alert(email: &str) -> Result<Alert, Box<Error>> {
