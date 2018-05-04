@@ -1,4 +1,6 @@
-# haproxy-alert
+<p align="center">
+   <img src="assets/logo.png" alt="haproxy-alert" title="haproxy-alert" />
+</p>
 
 A proxy that receives SMTP alerts from HAproxy and sends a slack message (for now).
 
